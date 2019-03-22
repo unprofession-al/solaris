@@ -9,23 +9,20 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/emicklei/dot"
 	"github.com/hashicorp/hcl"
-	"github.com/hashicorp/terraform/config"
+	jmespath "github.com/jmespath/go-jmespath"
 	"github.com/tidwall/gjson"
 )
 
 var root string
 var format string
-var experimental string
 
 const tfext = ".tf"
 
 func init() {
 	flag.StringVar(&root, "r", ".", "root path")
 	flag.StringVar(&format, "f", "dot", "output format ('dot' or 'text')")
-	flag.StringVar(&experimental, "e", "false", "experimental mode")
 }
 
 func getFileList(root string) (map[string][]string, error) {
@@ -50,20 +47,16 @@ func getFileList(root string) (map[string][]string, error) {
 	return dirs, err
 }
 
-func readFile(dir, file string) ([]byte, error) {
+func readFile(dir, file string) (interface{}, error) {
 	var data interface{}
 
 	content, err := ioutil.ReadFile(dir + file)
 	if err != nil {
-		return []byte{}, err
+		return data, err
 	}
 
 	err = hcl.Unmarshal(content, &data)
-	if err != nil {
-		return []byte{}, err
-	}
-
-	return json.Marshal(data)
+	return data, err
 }
 
 type RemoteState struct {
@@ -85,44 +78,39 @@ func (orig RemoteState) equals(other RemoteState) bool {
 	return false
 }
 
-func getRemoteState(file string, in []byte) (RemoteState, error) {
-	out := RemoteState{}
-
-	type raw [][]struct {
-		S3 []struct {
-			Bucket        string `json:"bucket"`
-			DynamodbTable string `json:"dynamodb_table"`
-			Encrypt       bool   `json:"encrypt"`
-			Key           string `json:"key"`
-			Profile       string `json:"profile"`
-			Region        string `json:"region"`
-		} `json:"s3"`
+func getRemoteState(file string, in interface{}) (RemoteState, error) {
+	bucket, err := jmespath.Search("terraform[0].backend[0].s3[0].bucket", in)
+	if err != nil {
+		return RemoteState{}, err
 	}
 
-	value := gjson.GetBytes(in, "terraform.#.backend")
-	if value.Exists() {
-		var data raw
-		err := json.Unmarshal([]byte(value.String()), &data)
-		if err != nil {
-			return out, err
-		}
-
-		for _, i := range data {
-			for _, j := range i {
-				v := j.S3
-				if len(v) > 0 {
-					rs := RemoteState{
-						InFile:  file,
-						Bucket:  v[0].Bucket,
-						Key:     v[0].Key,
-						Profile: v[0].Profile,
-						Region:  v[0].Region,
-					}
-					out = rs
-				}
-			}
-		}
+	key, err := jmespath.Search("terraform[0].backend[0].s3[0].key", in)
+	if err != nil {
+		return RemoteState{}, err
 	}
+
+	profile, err := jmespath.Search("terraform[0].backend[0].s3[0].profile", in)
+	if err != nil {
+		return RemoteState{}, err
+	}
+
+	region, err := jmespath.Search("terraform[0].backend[0].s3[0].region", in)
+	if err != nil {
+		return RemoteState{}, err
+	}
+
+	if bucket == nil || region == nil || key == nil || profile == nil {
+		return RemoteState{}, nil
+	}
+
+	out := RemoteState{
+		InFile:  file,
+		Bucket:  bucket.(string),
+		Key:     key.(string),
+		Profile: profile.(string),
+		Region:  region.(string),
+	}
+
 	return out, nil
 }
 
@@ -206,13 +194,15 @@ func main() {
 				state = rs
 			}
 
-			deps, err := getDependencies(file, c)
-			if err != nil {
-				panic(err)
-			}
-			if len(deps) > 0 {
-				dependencies = append(dependencies, deps...)
-			}
+			/*
+				deps, err := getDependencies(file, c)
+				if err != nil {
+					panic(err)
+				}
+				if len(deps) > 0 {
+					dependencies = append(dependencies, deps...)
+				}
+			*/
 		}
 
 		tf := Terraform{
@@ -229,40 +219,24 @@ func main() {
 		nodes[name] = g.Node(name)
 	}
 
-	if experimental == "false" {
-		for name, tf := range terraforms {
-			if len(tf.Dependencies) > 0 {
-				if format == "text" {
-					fmt.Println(name)
-				}
-				for _, dep := range tf.Dependencies {
-					for otherName, otherTf := range terraforms {
-						if dep.equals(otherTf.State) {
-							g.Edge(nodes[name], nodes[otherName])
-							if format == "text" {
-								fmt.Println("   " + otherName)
-							}
+	for name, tf := range terraforms {
+		if len(tf.Dependencies) > 0 {
+			if format == "text" {
+				fmt.Println(name)
+			}
+			for _, dep := range tf.Dependencies {
+				for otherName, otherTf := range terraforms {
+					if dep.equals(otherTf.State) {
+						g.Edge(nodes[name], nodes[otherName])
+						if format == "text" {
+							fmt.Println("   " + otherName)
 						}
 					}
 				}
 			}
 		}
-		if format == "dot" {
-			fmt.Println(g.String())
-		}
-	} else {
-		fmt.Println("ok nice")
-		c, err := config.LoadDir(root)
-		if err != nil {
-			panic(err)
-		}
-
-		for _, r := range c.Resources {
-			if r.Type == "terraform_remote_state" {
-				spew.Dump(r)
-				fmt.Println(r.(*RawConfig)["config"])
-				fmt.Println("----")
-			}
-		}
+	}
+	if format == "dot" {
+		fmt.Println(g.String())
 	}
 }
