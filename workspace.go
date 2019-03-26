@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 
 const tfext = ".tf"
 
+// GetWorkspaces generates
 func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) {
 	workspaces := map[string]*Workspace{}
 
@@ -71,22 +71,16 @@ func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) 
 	// get relations between workspace inputs and outputs
 	for _, workspace := range workspaces {
 		for i, input := range workspace.Inputs {
-			found := false
 			for _, dep := range workspaces {
 				if input.Dependency.equals(dep.RemoteState) {
-
 					for o, output := range dep.Outputs {
 						if input.Name == output.Name {
-							found = true
 							workspace.Inputs[i].ReferesTo = &dep.Outputs[o]
 							dep.Outputs[o].ReferedBy = append(dep.Outputs[o].ReferedBy, &workspace.Inputs[i])
 						}
 
 					}
 				}
-			}
-			if !found {
-				return workspaces, fmt.Errorf("Could not resolve dependencie for %s", input.Name)
 			}
 		}
 	}
@@ -122,11 +116,11 @@ func RenderWorkspaces(workspaces map[string]*Workspace) *dot.Graph {
 	// draw relations/dependencies
 	for _, workspace := range workspaces {
 		if len(workspace.Inputs) > 0 {
-			for _, input := range workspace.Inputs {
+			for i, input := range workspace.Inputs {
 				if input.ReferesTo != nil {
-					g.Edge(input.graphElement, input.ReferesTo.graphElement)
+					g.Edge(input.graphElement, input.ReferesTo.graphElement).Attr("label", strings.Join(input.InFile, ", "))
 				} else {
-					//printJSON(input)
+					workspace.Inputs[i].graphElement.Attr("color", "red")
 				}
 			}
 		}
@@ -183,6 +177,15 @@ func (ws *Workspace) readFiles(basepath string) error {
 	return nil
 }
 
+func AppendIfMissing(slice []string, i string) []string {
+	for _, ele := range slice {
+		if ele == i {
+			return slice
+		}
+	}
+	return append(slice, i)
+}
+
 func (ws *Workspace) getInputs() error {
 	r := regexp.MustCompile(`\${data\.terraform_remote_state\.(?P<rs>[a-zA-Z_-]*)\.(?P<var>[a-zA-Z_-]*)}`)
 
@@ -208,7 +211,7 @@ func (ws *Workspace) getInputs() error {
 			for i, elem := range ws.Inputs {
 				if varName == elem.Name && depRef.equals(*elem.Dependency) {
 					elemExists = true
-					ws.Inputs[i].InFile = append(ws.Inputs[i].InFile, filename)
+					ws.Inputs[i].InFile = AppendIfMissing(ws.Inputs[i].InFile, filename)
 				}
 			}
 
