@@ -12,7 +12,7 @@ var format string
 
 func init() {
 	flag.StringVar(&root, "r", ".", "root path")
-	flag.StringVar(&format, "f", "dot", "output format ('dot' or 'json')")
+	flag.StringVar(&format, "f", "dot", "output format ('dot', 'dotdetailed', 'json' or 'lint')")
 }
 
 func printJSON(in interface{}) {
@@ -34,6 +34,10 @@ func main() {
 	switch format {
 	case "dot":
 		graph := RenderWorkspaces(workspaces)
+		fmt.Println(graph.String())
+		fmt.Printf("\n/*\n  Use 'solaris ... | fdp -Tsvg > out.svg' or\n  similar to generate a vector visualization\n*/\n")
+	case "dotdetailed":
+		graph := RenderWorkspacesDetailed(workspaces)
 		fmt.Println(graph.String())
 		fmt.Printf("\n/*\n  Use 'solaris ... | fdp -Tsvg > out.svg' or\n  similar to generate a vector visualization\n*/\n")
 	case "json":

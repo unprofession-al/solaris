@@ -76,7 +76,7 @@ func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) 
 	for _, workspace := range workspaces {
 		for i, input := range workspace.Inputs {
 			for _, dep := range workspaces {
-				if input.Dependency.equals(dep.RemoteState) {
+				if input.Dependency != nil && input.Dependency.equals(dep.RemoteState) {
 					for o, output := range dep.Outputs {
 						if input.Name == output.Name {
 							workspace.Inputs[i].ReferesTo = &dep.Outputs[o]
@@ -92,7 +92,7 @@ func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) 
 	return workspaces, err
 }
 
-func RenderWorkspaces(workspaces map[string]*Workspace) *dot.Graph {
+func RenderWorkspacesDetailed(workspaces map[string]*Workspace) *dot.Graph {
 	g := dot.NewGraph()
 
 	// draw workspaces
@@ -131,6 +131,30 @@ func RenderWorkspaces(workspaces map[string]*Workspace) *dot.Graph {
 	return g
 }
 
+func RenderWorkspaces(workspaces map[string]*Workspace) *dot.Graph {
+	g := dot.NewGraph(dot.Directed)
+
+	nodes := map[string]dot.Node{}
+
+	// draw workspaces
+	for name, _ := range workspaces {
+		nodes[name] = g.Node(name)
+	}
+
+	// draw relations/dependencies
+	for name, workspace := range workspaces {
+		for _, dep := range workspace.Dependencies {
+			for otherName, other := range workspaces {
+				if dep.equals(other.RemoteState) {
+					g.Edge(nodes[name], nodes[otherName])
+				}
+			}
+		}
+	}
+
+	return g
+}
+
 func Lint(workspaces map[string]*Workspace) map[string][]string {
 	out := map[string][]string{}
 
@@ -152,7 +176,7 @@ func Lint(workspaces map[string]*Workspace) map[string][]string {
 	for name, workspace := range workspaces {
 		for _, input := range workspace.Inputs {
 			if input.ReferesTo == nil {
-				inputErrors = append(inputErrors, fmt.Sprintf("data.terraform_remote_state '%s' of workspace '%s' (in file '%s') seems refer to an inexistent output", input.Name, name, input.InFile))
+				inputErrors = append(inputErrors, fmt.Sprintf("input '%s' of workspace '%s' (in file '%s') seems refer to an inexistent output", input.FullName, name, input.InFile))
 			}
 		}
 	}
@@ -166,7 +190,7 @@ func Lint(workspaces map[string]*Workspace) map[string][]string {
 		for _, dep := range workspace.Dependencies {
 			depUsed := false
 			for _, input := range workspace.Inputs {
-				if input.Dependency.equals(dep) {
+				if input.Dependency != nil && input.Dependency.equals(dep) {
 					depUsed = true
 				}
 			}
@@ -234,6 +258,7 @@ type File struct {
 
 type Input struct {
 	Name         string       `json:"name"`
+	FullName     string       `json:"full_name"`
 	Dependency   *RemoteState `json:"dependency"`
 	ReferesTo    *Output      `json:"referes_to"`
 	InFile       []string     `json:"in_file"`
@@ -285,6 +310,7 @@ func (ws *Workspace) getInputs() error {
 				continue
 			}
 
+			fullName := string(match[0])
 			rsName := string(match[1])
 			varName := string(match[2])
 
@@ -296,17 +322,18 @@ func (ws *Workspace) getInputs() error {
 				}
 			}
 
-			elemExists := false
-			for i, elem := range ws.Inputs {
-				if varName == elem.Name && depRef.equals(*elem.Dependency) {
-					elemExists = true
+			inputExists := false
+			for i, input := range ws.Inputs {
+				if depRef != nil && varName == input.Name && depRef.equals(*input.Dependency) {
+					inputExists = true
 					ws.Inputs[i].InFile = AppendIfMissing(ws.Inputs[i].InFile, filename)
 				}
 			}
 
-			if !elemExists {
+			if !inputExists {
 				input := Input{
 					Name:       varName,
+					FullName:   fullName,
 					InFile:     []string{filename},
 					Dependency: depRef,
 					BelongsTo:  ws,
