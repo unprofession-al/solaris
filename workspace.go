@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/emicklei/dot"
 	"github.com/hashicorp/hcl"
 	jmespath "github.com/jmespath/go-jmespath"
 )
@@ -39,6 +40,7 @@ func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) 
 		return workspaces, err
 	}
 
+	// fetch info per workspace
 	for path, workspace := range workspaces {
 		err = workspace.readFiles(path)
 		if err != nil {
@@ -59,16 +61,87 @@ func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) 
 		if err != nil {
 			return workspaces, err
 		}
+
+		err = workspace.getOutputs()
+		if err != nil {
+			return workspaces, err
+		}
+	}
+
+	// get relations between workspace inputs and outputs
+	for _, workspace := range workspaces {
+		for i, input := range workspace.Inputs {
+			found := false
+			for _, dep := range workspaces {
+				if input.Dependency.equals(dep.RemoteState) {
+
+					for o, output := range dep.Outputs {
+						if input.Name == output.Name {
+							found = true
+							workspace.Inputs[i].ReferesTo = &dep.Outputs[o]
+							dep.Outputs[o].ReferedBy = append(dep.Outputs[o].ReferedBy, &workspace.Inputs[i])
+						}
+
+					}
+				}
+			}
+			if !found {
+				return workspaces, fmt.Errorf("Could not resolve dependencie for %s", input.Name)
+			}
+		}
 	}
 
 	return workspaces, err
 }
 
+func RenderWorkspaces(workspaces map[string]*Workspace) *dot.Graph {
+	g := dot.NewGraph()
+
+	// draw workspaces
+	for name, workspace := range workspaces {
+		// draw workspace
+		workspace.graphElement = g.Subgraph(name, dot.ClusterOption{})
+
+		// draw outputs
+		if len(workspace.Outputs) > 0 {
+			outputs := workspace.graphElement.Subgraph("outputs", dot.ClusterOption{})
+			for i, output := range workspace.Outputs {
+				workspace.Outputs[i].graphElement = outputs.Node(output.Name)
+			}
+		}
+
+		// draw inputs
+		if len(workspace.Inputs) > 0 {
+			inputs := workspace.graphElement.Subgraph("inputs", dot.ClusterOption{})
+			for i, input := range workspace.Inputs {
+				workspace.Inputs[i].graphElement = inputs.Node(input.Name)
+			}
+		}
+	}
+
+	// draw relations/dependencies
+	for _, workspace := range workspaces {
+		if len(workspace.Inputs) > 0 {
+			for _, input := range workspace.Inputs {
+				if input.ReferesTo != nil {
+					g.Edge(input.graphElement, input.ReferesTo.graphElement)
+				} else {
+					//printJSON(input)
+				}
+			}
+		}
+	}
+
+	return g
+}
+
 type Workspace struct {
-	Files        map[string]*File
-	RemoteState  RemoteState
-	Dependencies []RemoteState
-	Inputs       []Input
+	Files        map[string]*File `json:"-"`
+	RemoteState  RemoteState      `json:"remote_state"`
+	Dependencies []RemoteState    `json:"dependencies"`
+	Inputs       []Input          `json:"inputs"`
+	Outputs      []Output         `json:"outputs"`
+	graphElement *dot.Graph
 }
 
 type File struct {
@@ -77,9 +150,21 @@ type File struct {
 }
 
 type Input struct {
-	Name        string
-	RemoteState *RemoteState
-	ReferesTo   *Workspace
+	Name         string       `json:"name"`
+	Dependency   *RemoteState `json:"dependency"`
+	ReferesTo    *Output      `json:"referes_to"`
+	InFile       []string     `json:"in_file"`
+	BelongsTo    *Workspace   `json:"-"`
+	graphElement dot.Node
+}
+
+type Output struct {
+	Name         string      `json:"name"`
+	Value        interface{} `json:"-"`
+	InFile       string      `json:"in_file"`
+	ReferedBy    []*Input    `json:"-"`
+	BelongsTo    *Workspace  `json:"-"`
+	graphElement dot.Node
 }
 
 func (ws *Workspace) readFiles(basepath string) error {
@@ -100,12 +185,43 @@ func (ws *Workspace) readFiles(basepath string) error {
 
 func (ws *Workspace) getInputs() error {
 	r := regexp.MustCompile(`\${data\.terraform_remote_state\.(?P<rs>[a-zA-Z_-]*)\.(?P<var>[a-zA-Z_-]*)}`)
+
 	for filename, file := range ws.Files {
-		fmt.Println(filename)
 		matches := r.FindAllSubmatch(file.Raw, -1)
-		if len(matches) > 0 {
-			fmt.Println("  " + string(matches[0][1]))
-			fmt.Println("     " + string(matches[0][2]))
+		for _, match := range matches {
+			if len(match) != 3 {
+				continue
+			}
+
+			rsName := string(match[1])
+			varName := string(match[2])
+
+			var depRef *RemoteState
+
+			for i, dep := range ws.Dependencies {
+				if dep.Name == rsName {
+					depRef = &ws.Dependencies[i]
+				}
+			}
+
+			elemExists := false
+			for i, elem := range ws.Inputs {
+				if varName == elem.Name && depRef.equals(*elem.Dependency) {
+					elemExists = true
+					ws.Inputs[i].InFile = append(ws.Inputs[i].InFile, filename)
+				}
+			}
+
+			if !elemExists {
+				input := Input{
+					Name:       varName,
+					InFile:     []string{filename},
+					Dependency: depRef,
+					BelongsTo:  ws,
+				}
+
+				ws.Inputs = append(ws.Inputs, input)
+			}
 		}
 	}
 	return nil
@@ -193,6 +309,32 @@ func (ws *Workspace) getDependencies() error {
 				}
 
 				ws.Dependencies = append(ws.Dependencies, rs)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (ws *Workspace) getOutputs() error {
+	ws.Dependencies = []RemoteState{}
+	for filename, file := range ws.Files {
+		outputs, err := jmespath.Search("output[]", file.Unmarshalled)
+		if err != nil {
+			return err
+		} else if outputs == nil {
+			continue
+		}
+
+		for _, elem := range outputs.([]interface{}) {
+			for k, v := range elem.(map[string]interface{}) {
+				o := Output{
+					Name:      k,
+					Value:     v,
+					InFile:    filename,
+					BelongsTo: ws,
+				}
+				ws.Outputs = append(ws.Outputs, o)
 			}
 		}
 	}

@@ -1,12 +1,12 @@
 package main
 
 type RemoteState struct {
-	InFile  string
-	Name    string
-	Bucket  string
-	Key     string
-	Profile string
-	Region  string
+	InFile  string `json:"in_file"`
+	Name    string `json:"name"`
+	Bucket  string `json:"bucket"`
+	Key     string `json:"key"`
+	Profile string `json:"profile"`
+	Region  string `json:"region"`
 }
 
 func (orig RemoteState) equals(other RemoteState) bool {
