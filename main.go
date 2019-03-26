@@ -31,13 +31,20 @@ func main() {
 		panic(err)
 	}
 
-	graph := RenderWorkspaces(workspaces)
-
-	if format == "dot" {
+	switch format {
+	case "dot":
+		graph := RenderWorkspaces(workspaces)
 		fmt.Println(graph.String())
 		fmt.Printf("\n/*\n  Use 'solaris ... | fdp -Tsvg > out.svg' or\n  similar to generate a vector visualization\n*/\n")
-	} else {
+	case "json":
 		printJSON(workspaces)
+	case "lint":
+		errs := Lint(workspaces)
+		for k, v := range errs {
+			fmt.Println(k)
+			for _, e := range v {
+				fmt.Printf("\t%s\n", e)
+			}
+		}
 	}
-
 }
