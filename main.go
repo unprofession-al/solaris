@@ -42,6 +42,8 @@ func main() {
 		fmt.Printf("\n/*\n  Use 'solaris ... | fdp -Tsvg > out.svg' or\n  similar to generate a vector visualization\n*/\n")
 	case "json":
 		printJSON(workspaces)
+	case "exec":
+		BuildExecutionPlan(workspaces, []string{})
 	case "lint":
 		errs := Lint(workspaces)
 		for k, v := range errs {

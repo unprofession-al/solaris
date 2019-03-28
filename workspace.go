@@ -82,7 +82,6 @@ func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) 
 							workspace.Inputs[i].ReferesTo = &dep.Outputs[o]
 							dep.Outputs[o].ReferedBy = append(dep.Outputs[o].ReferedBy, &workspace.Inputs[i])
 						}
-
 					}
 				}
 			}
@@ -239,6 +238,63 @@ func Lint(workspaces map[string]*Workspace) map[string][]string {
 	}
 
 	return out
+}
+
+func BuildExecutionPlan(workspaces map[string]*Workspace, root []string) map[int][]string {
+	if len(root) == 0 {
+		for _, workspace := range workspaces {
+			if len(workspace.Inputs) == 0 {
+				root = append(root, workspace.Root)
+			}
+		}
+	} else {
+		// check roots
+	}
+
+	plan := [][]string{}
+	plan = append(plan, root)
+
+	nextTier := func(plan [][]string, workspaces map[string]*Workspace) [][]string {
+		next := []string{}
+		// iterate latest executed workspaces
+		for _, wsname := range plan[len(plan)-1] {
+			fmt.Printf("FROM %s\n", wsname)
+			// iterate the outputs
+			for _, output := range workspaces[wsname].Outputs {
+				rb := output.ReferedBy // list of inputs
+				// iterate the consumers of the output
+				for _, consumer := range rb {
+					fmt.Printf("  CHEKING TO ADD %s\n", consumer.BelongsTo.Root)
+					fulfilledDependencies := 0
+					// check if all dependencies are fulfilled
+					for _, consumerInput := range consumer.BelongsTo.Inputs {
+						fmt.Printf("    CHEKING DEP %s\n", consumerInput.BelongsTo.Root)
+						for _, i := range plan {
+							for _, j := range i {
+								fmt.Printf("       AGAINST PREPARED%s\n", j)
+								if j == consumerInput.BelongsTo.Root {
+									fmt.Printf("         FULFILLED\n")
+									fulfilledDependencies++
+								}
+							}
+						}
+					}
+					if fulfilledDependencies == len(rb) {
+						next = append(next, consumer.BelongsTo.Root)
+					}
+				}
+			}
+		}
+		return append(plan, next)
+	}
+
+	out := nextTier(plan, workspaces)
+
+	for tier, elems := range out {
+		fmt.Println(tier)
+		fmt.Printf("  %s\n", strings.Join(elems, ", "))
+	}
+	return map[int][]string{}
 }
 
 type Workspace struct {
