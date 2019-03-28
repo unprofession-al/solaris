@@ -1,6 +1,8 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+)
 
 func BuildExecutionPlan(workspaces map[string]*Workspace, roots []string) ([][]string, error) {
 	if len(roots) == 0 {
@@ -15,7 +17,6 @@ func BuildExecutionPlan(workspaces map[string]*Workspace, roots []string) ([][]s
 		var getRelevantWorkspaces func(*Workspace) []*Workspace
 		getRelevantWorkspaces = func(ws *Workspace) []*Workspace {
 			out := []*Workspace{ws}
-
 			for _, output := range ws.Outputs {
 				for _, input := range output.ReferedBy {
 					out = append(out, getRelevantWorkspaces(input.BelongsTo)...)
@@ -107,14 +108,15 @@ func BuildExecutionPlan(workspaces map[string]*Workspace, roots []string) ([][]s
 						return [][]string{}, err
 					} else if _, ok := workspaces[input.ReferesTo.BelongsTo.Root]; !ok {
 						fulfilled++
+						break
 					} else if p == input.ReferesTo.BelongsTo.Root {
 						fulfilled++
+						break
 					}
 				}
 			}
 			if len(ws.Inputs) == fulfilled {
 				next = append(next, ws.Root)
-
 			}
 		}
 
