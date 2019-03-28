@@ -63,8 +63,6 @@ func BuildExecutionPlan(workspaces map[string]*Workspace, roots []string) ([][]s
 			}
 		}
 		roots = newRoots
-		fmt.Println("Relevant Workspaces", workspaces)
-		fmt.Println("New Roots", newRoots)
 	}
 
 	plan := [][]string{}
