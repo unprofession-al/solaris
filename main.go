@@ -2,49 +2,74 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"log"
+	"os"
+
+	"github.com/spf13/cobra"
 )
 
-var root string
-var format string
+var (
+	rootBase           string
+	rootIgnorePatterns []string
+
+	graphDetailed bool
+
+	jsonCompact bool
+
+	planRoots []string
+)
 
 func init() {
-	flag.StringVar(&root, "r", ".", "root path")
-	flag.StringVar(&format, "f", "dot", "output format ('dot', 'dotdetailed', 'json' or 'lint')")
+	rootCmd.PersistentFlags().StringVarP(&rootBase, "base", "b", ".", "the base directory")
+	rootCmd.PersistentFlags().StringSliceVarP(&rootIgnorePatterns, "ignore", "i", []string{}, "ignore subdirectories that match the given patterns")
+
+	rootCmd.AddCommand(graphCmd)
+	graphCmd.PersistentFlags().BoolVarP(&graphDetailed, "detailed", "d", false, "draw a detailed graph")
+
+	rootCmd.AddCommand(lintCmd)
+
+	rootCmd.AddCommand(jsonCmd)
+	jsonCmd.PersistentFlags().BoolVarP(&jsonCompact, "compact", "c", false, "print compact JSON")
+
+	rootCmd.AddCommand(planCmd)
+	planCmd.PersistentFlags().StringSliceVarP(&planRoots, "roots", "r", []string{}, "ignore subdirectories that match the given patterns")
+
 }
 
-func printJSON(in interface{}) {
-	json, err := json.MarshalIndent(in, "", "    ")
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println(string(json))
+var rootCmd = &cobra.Command{
+	Use:   "solaris",
+	Short: "handle dependencies between multiple terraform workspaces",
 }
 
-func main() {
-	flag.Parse()
-
-	workspaces, err := GetWorkspaces(root, []string{"templates"})
-	if err != nil {
-		panic(err)
-	}
-
-	switch format {
-	case "dot":
-		graph := RenderWorkspaces(workspaces)
-		fmt.Println(graph.String())
+var graphCmd = &cobra.Command{
+	Use:   "graph",
+	Short: "generate dot output of terraform workspace dependencies",
+	Run: func(cmd *cobra.Command, args []string) {
+		workspaces, err := GetWorkspaces(rootBase, rootIgnorePatterns)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if graphDetailed {
+			graph := RenderWorkspacesDetailed(workspaces)
+			fmt.Println(graph.String())
+		} else {
+			graph := RenderWorkspaces(workspaces)
+			fmt.Println(graph.String())
+		}
 		fmt.Printf("\n/*\n  Use 'solaris ... | fdp -Tsvg > out.svg' or\n  similar to generate a vector visualization\n*/\n")
-	case "dotdetailed":
-		graph := RenderWorkspacesDetailed(workspaces)
-		fmt.Println(graph.String())
-		fmt.Printf("\n/*\n  Use 'solaris ... | fdp -Tsvg > out.svg' or\n  similar to generate a vector visualization\n*/\n")
-	case "json":
-		printJSON(workspaces)
-	case "exec":
-		BuildExecutionPlan(workspaces, []string{})
-	case "lint":
+	},
+}
+
+var lintCmd = &cobra.Command{
+	Use:   "lint",
+	Short: "lint terraform workspace dependencies",
+	Run: func(cmd *cobra.Command, args []string) {
+		workspaces, err := GetWorkspaces(rootBase, rootIgnorePatterns)
+		if err != nil {
+			log.Fatal(err)
+		}
+
 		errs := Lint(workspaces)
 		for k, v := range errs {
 			fmt.Println(k)
@@ -52,5 +77,58 @@ func main() {
 				fmt.Printf("\t%s\n", e)
 			}
 		}
+	},
+}
+
+var jsonCmd = &cobra.Command{
+	Use:   "json",
+	Short: "print a json representation of terraform workspace dependencies",
+	Run: func(cmd *cobra.Command, args []string) {
+		workspaces, err := GetWorkspaces(rootBase, rootIgnorePatterns)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		var out []byte
+		if jsonCompact {
+			out, err = json.Marshal(workspaces)
+		} else {
+			out, err = json.MarshalIndent(workspaces, "", "    ")
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Println(string(out))
+	},
+}
+
+var planCmd = &cobra.Command{
+	Use:   "plan",
+	Short: "print execution order of terraform workspaces",
+	Run: func(cmd *cobra.Command, args []string) {
+		workspaces, err := GetWorkspaces(rootBase, rootIgnorePatterns)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		plan, err := BuildExecutionPlan(workspaces, planRoots)
+		if err != nil {
+			log.Fatal(err)
+		}
+		for tier, workspaces := range plan {
+			fmt.Printf("Tier %d:\n", tier)
+			for _, ws := range workspaces {
+				fmt.Printf("  %s\n", ws)
+			}
+		}
+
+	},
+}
+
+func main() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Println(err)
+		os.Exit(-1)
 	}
 }
