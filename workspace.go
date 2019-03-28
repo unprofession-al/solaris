@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -82,7 +81,6 @@ func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) 
 							workspace.Inputs[i].ReferesTo = &dep.Outputs[o]
 							dep.Outputs[o].ReferedBy = append(dep.Outputs[o].ReferedBy, &workspace.Inputs[i])
 						}
-
 					}
 				}
 			}
@@ -90,155 +88,6 @@ func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) 
 	}
 
 	return workspaces, err
-}
-
-func RenderWorkspacesDetailed(workspaces map[string]*Workspace) *dot.Graph {
-	g := dot.NewGraph()
-
-	// draw workspaces
-	for name, workspace := range workspaces {
-		// draw workspace
-		workspace.graphElement = g.Subgraph(name, dot.ClusterOption{})
-
-		// draw outputs
-		if len(workspace.Outputs) > 0 {
-			outputs := workspace.graphElement.Subgraph("outputs", dot.ClusterOption{})
-			for i, output := range workspace.Outputs {
-				workspace.Outputs[i].graphElement = outputs.Node(output.Name)
-			}
-		}
-
-		// draw inputs
-		if len(workspace.Inputs) > 0 {
-			inputs := workspace.graphElement.Subgraph("inputs", dot.ClusterOption{})
-			for i, input := range workspace.Inputs {
-				workspace.Inputs[i].graphElement = inputs.Node(input.Name)
-			}
-		}
-	}
-
-	// draw relations/dependencies
-	for _, workspace := range workspaces {
-		for i, input := range workspace.Inputs {
-			if input.ReferesTo != nil {
-				g.Edge(input.graphElement, input.ReferesTo.graphElement).Attr("label", strings.Join(input.InFile, ", "))
-			} else {
-				workspace.Inputs[i].graphElement.Attr("color", "red")
-			}
-		}
-	}
-
-	return g
-}
-
-func RenderWorkspaces(workspaces map[string]*Workspace) *dot.Graph {
-	g := dot.NewGraph(dot.Directed)
-
-	nodes := map[string]dot.Node{}
-
-	// draw workspaces
-	for name, _ := range workspaces {
-		nodes[name] = g.Node(name)
-	}
-
-	// draw relations/dependencies
-	for name, workspace := range workspaces {
-		for _, dep := range workspace.Dependencies {
-			for otherName, other := range workspaces {
-				if dep.equals(other.RemoteState) {
-					g.Edge(nodes[name], nodes[otherName])
-				}
-			}
-		}
-	}
-
-	return g
-}
-
-func Lint(workspaces map[string]*Workspace) map[string][]string {
-	out := map[string][]string{}
-
-	// check for unused outputs
-	outputErrors := []string{}
-	for name, workspace := range workspaces {
-		for _, output := range workspace.Outputs {
-			if len(output.ReferedBy) == 0 {
-				outputErrors = append(outputErrors, fmt.Sprintf("output '%s' of workspace '%s' (in file '%s') seems to be unused", output.Name, name, output.InFile))
-			}
-		}
-	}
-	if len(outputErrors) > 0 {
-		out["Usused Outputs"] = outputErrors
-	}
-
-	// check for inexistent inputs
-	inputErrors := []string{}
-	for name, workspace := range workspaces {
-		for _, input := range workspace.Inputs {
-			if input.ReferesTo == nil {
-				inputErrors = append(inputErrors, fmt.Sprintf("input '%s' of workspace '%s' (in file '%s') seems refer to an inexistent output", input.FullName, name, input.InFile))
-			}
-		}
-	}
-	if len(inputErrors) > 0 {
-		out["Inexistent Inputs"] = inputErrors
-	}
-
-	// check for unused terraform_remote_state data sources
-	dataSourceErrors := []string{}
-	for name, workspace := range workspaces {
-		for _, dep := range workspace.Dependencies {
-			depUsed := false
-			for _, input := range workspace.Inputs {
-				if input.Dependency != nil && input.Dependency.equals(dep) {
-					depUsed = true
-				}
-			}
-			if !depUsed {
-				dataSourceErrors = append(dataSourceErrors, fmt.Sprintf("terraform_remote_state data source '%s' in workspace '%s' (in file '%s') seems to be unused", dep.Name, name, dep.InFile))
-			}
-		}
-	}
-	if len(dataSourceErrors) > 0 {
-		out["Unused terraform_remote_state data sources"] = dataSourceErrors
-	}
-
-	// check for circular dependencies
-	var checkCircular func(ws *Workspace, wsname string, dejavu []string) error
-	checkCircular = func(ws *Workspace, wsname string, dejavu []string) error {
-		for _, v := range dejavu {
-			if wsname == v {
-				return fmt.Errorf("%s -> %s", strings.Join(dejavu, " -> "), wsname)
-			}
-		}
-
-		dejavu = append(dejavu, wsname)
-
-		for _, input := range ws.Inputs {
-			if input.ReferesTo == nil {
-				continue
-			}
-
-			err := checkCircular(input.ReferesTo.BelongsTo, input.ReferesTo.BelongsTo.Root, dejavu)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	circularErrors := []string{}
-	for name, workspace := range workspaces {
-		err := checkCircular(workspace, name, []string{})
-
-		if err != nil {
-			circularErrors = append(circularErrors, fmt.Sprintf("circular dependency in workspace '%s': '%s'", name, err))
-		}
-	}
-	if len(circularErrors) > 0 {
-		out["Circular Dependencies"] = circularErrors
-	}
-
-	return out
 }
 
 type Workspace struct {
