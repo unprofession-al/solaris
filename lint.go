@@ -105,5 +105,4 @@ func lintCirularDependencies(workspaces map[string]*Workspace) []string {
 		}
 	}
 	return errs
-
 }

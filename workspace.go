@@ -14,7 +14,6 @@ import (
 
 const tfext = ".tf"
 
-// GetWorkspaces generates
 func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) {
 	workspaces := map[string]*Workspace{}
 
@@ -140,17 +139,17 @@ func (ws *Workspace) readFiles(basepath string) error {
 	return nil
 }
 
-func AppendIfMissing(slice []string, i string) []string {
-	for _, ele := range slice {
-		if ele == i {
-			return slice
-		}
-	}
-	return append(slice, i)
-}
-
 func (ws *Workspace) getInputs() error {
 	r := regexp.MustCompile(`\${data\.terraform_remote_state\.(?P<rs>[a-zA-Z0-9_-]*)\.(?P<var>[a-zA-Z0-9_-]*)}`)
+
+	appendIfMissing := func(slice []string, i string) []string {
+		for _, ele := range slice {
+			if ele == i {
+				return slice
+			}
+		}
+		return append(slice, i)
+	}
 
 	for filename, file := range ws.Files {
 		matches := r.FindAllSubmatch(file.Raw, -1)
@@ -175,7 +174,7 @@ func (ws *Workspace) getInputs() error {
 			for i, input := range ws.Inputs {
 				if depRef != nil && varName == input.Name && depRef.equals(*input.Dependency) {
 					inputExists = true
-					ws.Inputs[i].InFile = AppendIfMissing(ws.Inputs[i].InFile, filename)
+					ws.Inputs[i].InFile = appendIfMissing(ws.Inputs[i].InFile, filename)
 				}
 			}
 

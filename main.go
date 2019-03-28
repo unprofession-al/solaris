@@ -18,6 +18,7 @@ var (
 	jsonCompact bool
 
 	planRoots []string
+	planJSON  bool
 )
 
 func init() {
@@ -33,7 +34,8 @@ func init() {
 	jsonCmd.PersistentFlags().BoolVarP(&jsonCompact, "compact", "c", false, "print compact JSON")
 
 	rootCmd.AddCommand(planCmd)
-	planCmd.PersistentFlags().StringSliceVarP(&planRoots, "roots", "r", []string{}, "ignore subdirectories that match the given patterns")
+	planCmd.PersistentFlags().StringSliceVarP(&planRoots, "roots", "r", []string{}, "plan only to execute these workspaces and workspaces depending on them")
+	planCmd.PersistentFlags().BoolVarP(&planJSON, "json", "j", false, "print as JSON")
 
 }
 
@@ -57,7 +59,7 @@ var graphCmd = &cobra.Command{
 			graph := RenderWorkspaces(workspaces)
 			fmt.Println(graph.String())
 		}
-		fmt.Printf("\n/*\n  Use 'solaris ... | fdp -Tsvg > out.svg' or\n  similar to generate a vector visualization\n*/\n")
+		fmt.Printf("\n/*\n   Use 'solaris ... | fdp -Tsvg > out.svg' or\n   similar to generate a vector visualization\n*/\n")
 	},
 }
 
@@ -72,9 +74,9 @@ var lintCmd = &cobra.Command{
 
 		errs := Lint(workspaces)
 		for k, v := range errs {
-			fmt.Println(k)
+			fmt.Printf("%s:\n", k)
 			for _, e := range v {
-				fmt.Printf("\t%s\n", e)
+				fmt.Printf("   %s\n", e)
 			}
 		}
 	},
@@ -116,10 +118,18 @@ var planCmd = &cobra.Command{
 		if err != nil {
 			log.Fatal(err)
 		}
-		for tier, workspaces := range plan {
-			fmt.Printf("Tier %d:\n", tier)
-			for _, ws := range workspaces {
-				fmt.Printf("  %s\n", ws)
+		if planJSON {
+			out, err := json.MarshalIndent(plan, "", "    ")
+			if err != nil {
+				log.Fatal(err)
+			}
+			fmt.Println(string(out))
+		} else {
+			for tier, workspaces := range plan {
+				fmt.Printf("Tier %d:\n", tier)
+				for _, ws := range workspaces {
+					fmt.Printf("   %s\n", ws)
+				}
 			}
 		}
 
