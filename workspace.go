@@ -12,7 +12,11 @@ import (
 	jmespath "github.com/jmespath/go-jmespath"
 )
 
-const tfext = ".tf"
+const (
+	tfext        = ".tf"
+	preFileName  = "PreManual.md"
+	postFileName = "PostManual.md"
+)
 
 func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) {
 	workspaces := map[string]*Workspace{}
@@ -68,6 +72,11 @@ func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) 
 		if err != nil {
 			return workspaces, err
 		}
+
+		err = workspace.getManual()
+		if err != nil {
+			return workspaces, err
+		}
 	}
 
 	// get relations between workspace inputs and outputs
@@ -96,6 +105,8 @@ type Workspace struct {
 	Dependencies []RemoteState    `json:"dependencies"`
 	Inputs       []Input          `json:"inputs"`
 	Outputs      []Output         `json:"outputs"`
+	PreManual    string           `json:"PreManual"`
+	PostManual   string           `json:"PostManual"`
 	graphElement *dot.Graph
 }
 
@@ -304,5 +315,26 @@ func (ws *Workspace) getOutputs() error {
 		}
 	}
 
+	return nil
+}
+
+func (ws *Workspace) getManual() error {
+	prePath := ws.Root + "/" + preFileName
+	if _, err := os.Stat(prePath); err == nil {
+		raw, err := ioutil.ReadFile(prePath)
+		if err != nil {
+			return err
+		}
+		ws.PreManual = string(raw)
+	}
+
+	postPath := ws.Root + "/" + postFileName
+	if _, err := os.Stat(postPath); err == nil {
+		raw, err := ioutil.ReadFile(postPath)
+		if err != nil {
+			return err
+		}
+		ws.PostManual = string(raw)
+	}
 	return nil
 }
