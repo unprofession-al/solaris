@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -95,6 +97,15 @@ func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) 
 		}
 	}
 
+	// get relation betwenn workspaces and manual work
+	for _, workspace := range workspaces {
+		out, err := workspace.PostManual.Render(workspaces)
+		if err != nil {
+			return workspaces, err
+		}
+		fmt.Println(out)
+	}
+
 	return workspaces, err
 }
 
@@ -105,10 +116,12 @@ type Workspace struct {
 	Dependencies []RemoteState    `json:"dependencies"`
 	Inputs       []Input          `json:"inputs"`
 	Outputs      []Output         `json:"outputs"`
-	PreManual    string           `json:"PreManual"`
-	PostManual   string           `json:"PostManual"`
+	PreManual    Manual           `json:"PreManual"`
+	PostManual   Manual           `json:"PostManual"`
 	graphElement *dot.Graph
 }
+
+type Manual string
 
 type File struct {
 	Raw          []byte
@@ -325,7 +338,7 @@ func (ws *Workspace) getManual() error {
 		if err != nil {
 			return err
 		}
-		ws.PreManual = string(raw)
+		ws.PreManual = Manual(raw)
 	}
 
 	postPath := ws.Root + "/" + postFileName
@@ -334,7 +347,71 @@ func (ws *Workspace) getManual() error {
 		if err != nil {
 			return err
 		}
-		ws.PostManual = string(raw)
+		ws.PostManual = Manual(raw)
 	}
 	return nil
+}
+
+func (m Manual) GetReferences(workspaces map[string]*Workspace) (map[string]*Output, error) {
+	out := map[string]*Output{}
+	re := regexp.MustCompile(`\{\{.*\}\}`)
+	submaches := re.FindAllSubmatch([]byte(m), -1)
+	for _, sm := range submaches {
+		match := string(sm[0])
+		seg := strings.SplitN(strings.Trim(match, "{{}}"), ".", 2)
+		if len(seg) != 2 {
+			return out, fmt.Errorf("Reference '%s' seems to be malformed\n", match)
+		}
+
+		workspacePath := seg[0]
+		outputName := seg[1]
+
+		var o *Output
+		for name, workspace := range workspaces {
+			if strings.Contains(name, workspacePath) {
+				for _, output := range workspace.Outputs {
+					if output.Name == outputName {
+						o = &output
+					}
+				}
+			}
+		}
+		if o == nil {
+			return out, fmt.Errorf("Reference to '%s' in workspace '%s' does not exist\n", outputName, workspacePath)
+		}
+
+		out[match] = o
+	}
+	return out, nil
+}
+
+func (m Manual) Render(workspaces map[string]*Workspace) (string, error) {
+	rendered := string(m)
+
+	references, err := m.GetReferences(workspaces)
+	if err != nil {
+		errOut := fmt.Errorf("Could not get references: %s", err.Error())
+		return rendered, errOut
+	}
+	for reference, output := range references {
+		chdir := output.BelongsTo.Root
+		command := "terraform"
+		args := []string{
+			"output",
+			output.Name,
+		}
+
+		cmd := exec.Command(command, args...)
+		cmd.Dir = chdir
+
+		out, err := cmd.Output()
+		if err != nil {
+			errOut := fmt.Errorf("Could not run command '%s %s' in '%s': %s", command, strings.Join(args, " "), chdir, err.Error())
+			return rendered, errOut
+		}
+
+		rendered = strings.Replace(rendered, reference, string(out), -1)
+	}
+
+	return rendered, nil
 }
