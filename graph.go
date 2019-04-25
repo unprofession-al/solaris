@@ -29,18 +29,6 @@ func RenderWorkspacesDetailed(workspaces map[string]*Workspace) *dot.Graph {
 				workspace.Inputs[i].graphElement = inputs.Node(input.Name)
 			}
 		}
-
-		// draw post manual
-		if workspace.PostManual != "" {
-			// inputs := workspace.graphElement.Subgraph("PostManual", dot.ClusterOption{})
-			workspace.graphElement.Subgraph("PostManual", dot.ClusterOption{})
-		}
-
-		// draw pre manual
-		if workspace.PreManual != "" {
-			// inputs := workspace.graphElement.Subgraph("PerManual", dot.ClusterOption{})
-			workspace.graphElement.Subgraph("PerManual", dot.ClusterOption{})
-		}
 	}
 
 	// draw relations/dependencies

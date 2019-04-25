@@ -125,10 +125,24 @@ var planCmd = &cobra.Command{
 			}
 			fmt.Println(string(out))
 		} else {
-			for tier, workspaces := range plan {
+			for tier, ws := range plan {
 				fmt.Printf("Tier %d:\n", tier)
-				for _, ws := range workspaces {
+				for _, ws := range ws {
 					fmt.Printf("   %s\n", ws)
+					if workspaces[ws].PreManual != "" {
+						manual, err := workspaces[ws].PreManual.render(workspaces[ws].Inputs)
+						if err != nil {
+							log.Fatal(err)
+						}
+						fmt.Println(manual)
+					}
+					if workspaces[ws].PostManual != "" {
+						manual, err := workspaces[ws].PostManual.render(workspaces[ws].Inputs)
+						if err != nil {
+							log.Fatal(err)
+						}
+						fmt.Println(manual)
+					}
 				}
 			}
 		}
