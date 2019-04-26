@@ -113,8 +113,12 @@ var planCmd = &cobra.Command{
 		if err != nil {
 			log.Fatal(err)
 		}
+		wsarray := []*Workspace{}
+		for _, ws := range workspaces {
+			wsarray = append(wsarray, ws)
+		}
 
-		plan, err := BuildExecutionPlan(workspaces, planRoots)
+		plan, err := BuildExecutionPlan(wsarray, planRoots)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -127,17 +131,17 @@ var planCmd = &cobra.Command{
 		} else {
 			for tier, ws := range plan {
 				fmt.Printf("Tier %d:\n", tier)
-				for _, ws := range ws {
-					fmt.Printf("   %s\n", ws)
-					if workspaces[ws].PreManual != "" {
-						manual, err := workspaces[ws].PreManual.render(workspaces[ws].Inputs)
+				for _, i := range ws {
+					fmt.Printf("   %s\n", i.Root)
+					if i.PreManual != "" {
+						manual, err := i.PreManual.render(i.Inputs)
 						if err != nil {
 							log.Fatal(err)
 						}
 						fmt.Println(manual)
 					}
-					if workspaces[ws].PostManual != "" {
-						manual, err := workspaces[ws].PostManual.render(workspaces[ws].Inputs)
+					if i.PostManual != "" {
+						manual, err := i.PostManual.render(i.Inputs)
 						if err != nil {
 							log.Fatal(err)
 						}
