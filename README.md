@@ -35,3 +35,9 @@ Flags:
 Use "solaris [command] --help" for more information about a command.
 ```
 
+## TODO
+
+- Create Data Souces via solaris: `solaris refer service/test` -> creates `terraform_remote_state` data source
+- Allow `terraform_remote_states` with backends other than s3
+- Add tests
+
