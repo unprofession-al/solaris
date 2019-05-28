@@ -115,11 +115,11 @@ func BuildExecutionPlan(workspaces []*Workspace, roots []string) ([][]*Workspace
 		// plan all unplanned with satisfied dependencies
 		next := []*Workspace{}
 		for _, ws := range unplanned {
-			toSatisfy := 0
+			toSatisfy := map[string]bool{}
 			for _, dep := range ws.Dependencies {
 				for _, i := range workspaces {
 					if dep.equals(i.RemoteState) {
-						toSatisfy++
+						toSatisfy[dep.Name] = true
 						break
 					}
 				}
@@ -129,10 +129,11 @@ func BuildExecutionPlan(workspaces []*Workspace, roots []string) ([][]*Workspace
 				for _, p := range planned {
 					if dep.equals(p.RemoteState) {
 						satisfied++
+						break
 					}
 				}
 			}
-			if satisfied == toSatisfy {
+			if satisfied == len(toSatisfy) {
 				next = append(next, ws)
 			}
 		}
