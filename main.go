@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/russross/blackfriday"
 	"github.com/spf13/cobra"
 )
 
@@ -17,8 +18,9 @@ var (
 
 	jsonCompact bool
 
-	planRoots []string
-	planJSON  bool
+	planRoots        []string
+	planJSON         bool
+	planRenderManual bool
 )
 
 func init() {
@@ -36,6 +38,7 @@ func init() {
 	rootCmd.AddCommand(planCmd)
 	planCmd.PersistentFlags().StringSliceVarP(&planRoots, "roots", "r", []string{}, "plan only to execute these workspaces and workspaces depending on them")
 	planCmd.PersistentFlags().BoolVarP(&planJSON, "json", "j", false, "print as JSON")
+	planCmd.PersistentFlags().BoolVarP(&planRenderManual, "render", "m", true, "Render Pre-/Post manuals")
 
 }
 
@@ -122,6 +125,31 @@ var planCmd = &cobra.Command{
 		if err != nil {
 			log.Fatal(err)
 		}
+
+		if planRenderManual {
+			for tier, workspaces := range plan {
+				for i, ws := range workspaces {
+					if ws.PreManual != "" {
+						manual, err := ws.PreManual.render(ws.Inputs)
+						if err != nil {
+							log.Fatal(err)
+						}
+						x := blackfriday.Run([]byte(manual))
+						plan[tier][i].PreManualRendered = string(x)
+					}
+					if ws.PostManual != "" {
+						manual, err := ws.PostManual.render(ws.Inputs)
+						if err != nil {
+							log.Fatal(err)
+						}
+
+						x := blackfriday.Run([]byte(manual))
+						plan[tier][i].PostManualRendered = string(x)
+					}
+				}
+			}
+		}
+
 		if planJSON {
 			out, err := json.MarshalIndent(plan, "", "    ")
 			if err != nil {
@@ -129,26 +157,8 @@ var planCmd = &cobra.Command{
 			}
 			fmt.Println(string(out))
 		} else {
-			for tier, ws := range plan {
-				fmt.Printf("Tier %d:\n", tier)
-				for _, i := range ws {
-					fmt.Printf("   %s\n", i.Root)
-					if i.PreManual != "" {
-						manual, err := i.PreManual.render(i.Inputs)
-						if err != nil {
-							log.Fatal(err)
-						}
-						fmt.Println(manual)
-					}
-					if i.PostManual != "" {
-						manual, err := i.PostManual.render(i.Inputs)
-						if err != nil {
-							log.Fatal(err)
-						}
-						fmt.Println(manual)
-					}
-				}
-			}
+			out := RenderExecutionPlanAsHTML(plan)
+			fmt.Println(out)
 		}
 
 	},

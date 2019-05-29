@@ -127,15 +127,17 @@ func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) 
 }
 
 type Workspace struct {
-	Files        map[string]*File `json:"-"`
-	Root         string           `json:"root"`
-	RemoteState  RemoteState      `json:"remote_state"`
-	Dependencies []RemoteState    `json:"dependencies"`
-	Inputs       []Input          `json:"inputs"`
-	Outputs      []Output         `json:"outputs"`
-	PreManual    Manual           `json:"PreManual"`
-	PostManual   Manual           `json:"PostManual"`
-	graphElement *dot.Graph
+	Files              map[string]*File `json:"-"`
+	Root               string           `json:"root"`
+	RemoteState        RemoteState      `json:"remote_state"`
+	Dependencies       []RemoteState    `json:"dependencies"`
+	Inputs             []Input          `json:"inputs"`
+	Outputs            []Output         `json:"outputs"`
+	PreManual          Manual           `json:"pre_manual"`
+	PreManualRendered  string           `json:"pre_manual_rendered"`
+	PostManual         Manual           `json:"post_manual"`
+	PostManualRendered string           `json:"post_manual_rendered"`
+	graphElement       *dot.Graph
 }
 
 type Manual string
