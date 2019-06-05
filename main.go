@@ -13,6 +13,7 @@ import (
 var (
 	rootBase           string
 	rootIgnorePatterns []string
+	rootDebug          bool
 
 	graphDetailed bool
 
@@ -24,6 +25,7 @@ var (
 )
 
 func init() {
+	rootCmd.PersistentFlags().BoolVar(&rootDebug, "debug", false, "write debug output to STDERR")
 	rootCmd.PersistentFlags().StringVarP(&rootBase, "base", "b", ".", "the base directory")
 	rootCmd.PersistentFlags().StringSliceVarP(&rootIgnorePatterns, "ignore", "i", []string{}, "ignore subdirectories that match the given patterns")
 
@@ -38,8 +40,7 @@ func init() {
 	rootCmd.AddCommand(planCmd)
 	planCmd.PersistentFlags().StringSliceVarP(&planRoots, "roots", "r", []string{}, "plan only to execute these workspaces and workspaces depending on them")
 	planCmd.PersistentFlags().BoolVarP(&planJSON, "json", "j", false, "print as JSON")
-	planCmd.PersistentFlags().BoolVarP(&planRenderManual, "render", "m", true, "Render Pre-/Post manuals")
-
+	planCmd.PersistentFlags().BoolVarP(&planRenderManual, "render", "m", false, "Render Pre-/Post manuals (this requires `terraform` to be installed)")
 }
 
 var rootCmd = &cobra.Command{
@@ -126,26 +127,34 @@ var planCmd = &cobra.Command{
 			log.Fatal(err)
 		}
 
-		if planRenderManual {
-			for tier, workspaces := range plan {
-				for i, ws := range workspaces {
-					if ws.PreManual != "" {
-						manual, err := ws.PreManual.render(ws.Inputs)
+		for tier, workspaces := range plan {
+			for i, ws := range workspaces {
+				if ws.PreManual != "" {
+					manual := ""
+					if planRenderManual {
+						manual, err = ws.PreManual.render(ws.Inputs)
 						if err != nil {
 							log.Fatal(err)
 						}
-						x := blackfriday.Run([]byte(manual))
-						plan[tier][i].PreManualRendered = string(x)
+					} else {
+						manual = string(ws.PreManual)
 					}
-					if ws.PostManual != "" {
-						manual, err := ws.PostManual.render(ws.Inputs)
+					x := blackfriday.Run([]byte(manual))
+					plan[tier][i].PreManualRendered = string(x)
+				}
+				if ws.PostManual != "" {
+					manual := ""
+					if planRenderManual {
+						manual, err = ws.PostManual.render(ws.Inputs)
 						if err != nil {
 							log.Fatal(err)
 						}
+					} else {
+						manual = string(ws.PostManual)
+					}
 
-						x := blackfriday.Run([]byte(manual))
-						plan[tier][i].PostManualRendered = string(x)
-					}
+					x := blackfriday.Run([]byte(manual))
+					plan[tier][i].PostManualRendered = string(x)
 				}
 			}
 		}

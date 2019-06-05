@@ -115,26 +115,44 @@ func BuildExecutionPlan(workspaces []*Workspace, roots []string) ([][]*Workspace
 		// plan all unplanned with satisfied dependencies
 		next := []*Workspace{}
 		for _, ws := range unplanned {
+			debug(fmt.Sprintf("Checking unplanned workspace %s\n", ws.Root))
 			toSatisfy := map[string]bool{}
 			for _, dep := range ws.Dependencies {
 				for _, i := range workspaces {
 					if dep.equals(i.RemoteState) {
+						toSatisfy[dep.Name] = false
+						break
+					}
+				}
+			}
+
+			for _, dep := range ws.Dependencies {
+				for _, p := range planned {
+					if dep.equals(p.RemoteState) {
 						toSatisfy[dep.Name] = true
 						break
 					}
 				}
 			}
-			satisfied := 0
-			for _, dep := range ws.Dependencies {
-				for _, p := range planned {
-					if dep.equals(p.RemoteState) {
-						satisfied++
-						break
-					}
+
+			satisfied := true
+
+			for _, v := range toSatisfy {
+				if !v {
+					satisfied = false
+					break
 				}
 			}
-			if satisfied == len(toSatisfy) {
+
+			if satisfied {
+				debug("\tsatisfied\n")
 				next = append(next, ws)
+			} else {
+				for k, v := range toSatisfy {
+					if !v {
+						debug(fmt.Sprintf("\t%s NOT satisfied\n", k))
+					}
+				}
 			}
 		}
 

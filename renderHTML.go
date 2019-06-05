@@ -12,6 +12,8 @@ func RenderExecutionPlanAsHTML(plan [][]*Workspace) string {
 <head>
   <meta charset="utf-8">
   <title>Execution Plan</title>
+</head>
+<body>
   {{range $tier, $workspaces := .}}
   <h1>Tier {{ $tier }}</h1>
   {{range $i, $workspace := $workspaces}}
@@ -30,9 +32,7 @@ func RenderExecutionPlanAsHTML(plan [][]*Workspace) string {
   {{end}}
   {{end}}
   {{end}}
-
-</head>
-
+</body>
 </html>`
 	var out bytes.Buffer
 	tmpl := template.Must(template.New("test").Parse(tmplSrc))
