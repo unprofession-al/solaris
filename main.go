@@ -6,22 +6,26 @@ import (
 	"log"
 	"os"
 
+	"github.com/russross/blackfriday"
 	"github.com/spf13/cobra"
 )
 
 var (
 	rootBase           string
 	rootIgnorePatterns []string
+	rootDebug          bool
 
 	graphDetailed bool
 
 	jsonCompact bool
 
-	planRoots []string
-	planJSON  bool
+	planRoots        []string
+	planJSON         bool
+	planRenderManual bool
 )
 
 func init() {
+	rootCmd.PersistentFlags().BoolVar(&rootDebug, "debug", false, "write debug output to STDERR")
 	rootCmd.PersistentFlags().StringVarP(&rootBase, "base", "b", ".", "the base directory")
 	rootCmd.PersistentFlags().StringSliceVarP(&rootIgnorePatterns, "ignore", "i", []string{}, "ignore subdirectories that match the given patterns")
 
@@ -36,7 +40,7 @@ func init() {
 	rootCmd.AddCommand(planCmd)
 	planCmd.PersistentFlags().StringSliceVarP(&planRoots, "roots", "r", []string{}, "plan only to execute these workspaces and workspaces depending on them")
 	planCmd.PersistentFlags().BoolVarP(&planJSON, "json", "j", false, "print as JSON")
-
+	planCmd.PersistentFlags().BoolVarP(&planRenderManual, "render", "m", false, "Render Pre-/Post manuals (this requires `terraform` to be installed)")
 }
 
 var rootCmd = &cobra.Command{
@@ -113,11 +117,48 @@ var planCmd = &cobra.Command{
 		if err != nil {
 			log.Fatal(err)
 		}
+		wsarray := []*Workspace{}
+		for _, ws := range workspaces {
+			wsarray = append(wsarray, ws)
+		}
 
-		plan, err := BuildExecutionPlan(workspaces, planRoots)
+		plan, err := BuildExecutionPlan(wsarray, planRoots)
 		if err != nil {
 			log.Fatal(err)
 		}
+
+		for tier, workspaces := range plan {
+			for i, ws := range workspaces {
+				if ws.PreManual != "" {
+					manual := ""
+					if planRenderManual {
+						manual, err = ws.PreManual.render(ws.Inputs)
+						if err != nil {
+							log.Fatal(err)
+						}
+					} else {
+						manual = string(ws.PreManual)
+					}
+					x := blackfriday.Run([]byte(manual))
+					plan[tier][i].PreManualRendered = string(x)
+				}
+				if ws.PostManual != "" {
+					manual := ""
+					if planRenderManual {
+						manual, err = ws.PostManual.render(ws.Inputs)
+						if err != nil {
+							log.Fatal(err)
+						}
+					} else {
+						manual = string(ws.PostManual)
+					}
+
+					x := blackfriday.Run([]byte(manual))
+					plan[tier][i].PostManualRendered = string(x)
+				}
+			}
+		}
+
 		if planJSON {
 			out, err := json.MarshalIndent(plan, "", "    ")
 			if err != nil {
@@ -125,12 +166,8 @@ var planCmd = &cobra.Command{
 			}
 			fmt.Println(string(out))
 		} else {
-			for tier, workspaces := range plan {
-				fmt.Printf("Tier %d:\n", tier)
-				for _, ws := range workspaces {
-					fmt.Printf("   %s\n", ws)
-				}
-			}
+			out := RenderExecutionPlanAsHTML(plan)
+			fmt.Println(out)
 		}
 
 	},

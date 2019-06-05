@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -53,30 +55,56 @@ func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) 
 			return workspaces, err
 		}
 
-		err = workspace.getRemoteState()
+		rs, err := workspace.getRemoteState()
 		if err != nil {
 			return workspaces, err
 		}
+		workspace.RemoteState = rs
 
-		err = workspace.getDependencies()
+		td, err := workspace.getTerraformDependencies()
 		if err != nil {
 			return workspaces, err
 		}
+		workspace.Dependencies = append(workspace.Dependencies, td...)
 
-		err = workspace.getInputs()
+		ti, err := workspace.getTerraformInputs()
 		if err != nil {
 			return workspaces, err
 		}
+		workspace.Inputs = append(workspace.Inputs, ti...)
 
-		err = workspace.getOutputs()
+		o, err := workspace.getOutputs()
 		if err != nil {
 			return workspaces, err
 		}
+		workspace.Outputs = append(workspace.Outputs, o...)
+	}
 
-		err = workspace.getManual()
+	// fetch manual info per workspace
+	for _, workspace := range workspaces {
+		pre, err := workspace.getManual(preFileName)
 		if err != nil {
 			return workspaces, err
 		}
+		workspace.PreManual = pre
+
+		post, err := workspace.getManual(postFileName)
+		if err != nil {
+			return workspaces, err
+		}
+		workspace.PostManual = post
+
+		md, err := workspace.getManualDependencies(workspaces)
+		if err != nil {
+			return workspaces, err
+		}
+		workspace.Dependencies = append(workspace.Dependencies, md...)
+
+		mi, err := workspace.getManualInputs(workspaces)
+		if err != nil {
+			return workspaces, err
+		}
+		workspace.Inputs = append(workspace.Inputs, mi...)
 	}
 
 	// get relations between workspace inputs and outputs
@@ -99,16 +127,20 @@ func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) 
 }
 
 type Workspace struct {
-	Files        map[string]*File `json:"-"`
-	Root         string           `json:"root"`
-	RemoteState  RemoteState      `json:"remote_state"`
-	Dependencies []RemoteState    `json:"dependencies"`
-	Inputs       []Input          `json:"inputs"`
-	Outputs      []Output         `json:"outputs"`
-	PreManual    string           `json:"PreManual"`
-	PostManual   string           `json:"PostManual"`
-	graphElement *dot.Graph
+	Files              map[string]*File `json:"-"`
+	Root               string           `json:"root"`
+	RemoteState        RemoteState      `json:"remote_state"`
+	Dependencies       []RemoteState    `json:"dependencies"`
+	Inputs             []Input          `json:"inputs"`
+	Outputs            []Output         `json:"outputs"`
+	PreManual          Manual           `json:"pre_manual"`
+	PreManualRendered  string           `json:"pre_manual_rendered"`
+	PostManual         Manual           `json:"post_manual"`
+	PostManualRendered string           `json:"post_manual_rendered"`
+	graphElement       *dot.Graph
 }
+
+type Manual string
 
 type File struct {
 	Raw          []byte
@@ -150,7 +182,8 @@ func (ws *Workspace) readFiles(basepath string) error {
 	return nil
 }
 
-func (ws *Workspace) getInputs() error {
+func (ws Workspace) getTerraformInputs() ([]Input, error) {
+	inputs := []Input{}
 	r := regexp.MustCompile(`\${data\.terraform_remote_state\.(?P<rs>[a-zA-Z0-9_-]*)\.(?P<var>[a-zA-Z0-9_-]*)}`)
 
 	appendIfMissing := func(slice []string, i string) []string {
@@ -182,10 +215,10 @@ func (ws *Workspace) getInputs() error {
 			}
 
 			inputExists := false
-			for i, input := range ws.Inputs {
+			for i, input := range inputs {
 				if depRef != nil && varName == input.Name && depRef.equals(*input.Dependency) {
 					inputExists = true
-					ws.Inputs[i].InFile = appendIfMissing(ws.Inputs[i].InFile, filename)
+					inputs[i].InFile = appendIfMissing(inputs[i].InFile, filename)
 				}
 			}
 
@@ -195,40 +228,41 @@ func (ws *Workspace) getInputs() error {
 					FullName:   fullName,
 					InFile:     []string{filename},
 					Dependency: depRef,
-					BelongsTo:  ws,
+					BelongsTo:  &ws,
 				}
 
-				ws.Inputs = append(ws.Inputs, input)
+				inputs = append(inputs, input)
 			}
 		}
 	}
-	return nil
+	return inputs, nil
 }
 
-func (ws *Workspace) getRemoteState() error {
+func (ws Workspace) getRemoteState() (RemoteState, error) {
+	rs := RemoteState{}
 	for filename, file := range ws.Files {
 		bucket, err := jmespath.Search("terraform[0].backend[0].s3[0].bucket", file.Unmarshalled)
 		if err != nil {
-			return err
+			return rs, err
 		}
 
 		key, err := jmespath.Search("terraform[0].backend[0].s3[0].key", file.Unmarshalled)
 		if err != nil {
-			return err
+			return rs, err
 		}
 
 		profile, err := jmespath.Search("terraform[0].backend[0].s3[0].profile", file.Unmarshalled)
 		if err != nil {
-			return err
+			return rs, err
 		}
 
 		region, err := jmespath.Search("terraform[0].backend[0].s3[0].region", file.Unmarshalled)
 		if err != nil {
-			return err
+			return rs, err
 		}
 
 		if bucket != nil && region != nil && key != nil && profile != nil {
-			ws.RemoteState = RemoteState{
+			rs = RemoteState{
 				InFile:  filename,
 				Bucket:  bucket.(string),
 				Key:     key.(string),
@@ -238,15 +272,15 @@ func (ws *Workspace) getRemoteState() error {
 		}
 	}
 
-	return nil
+	return rs, nil
 }
 
-func (ws *Workspace) getDependencies() error {
-	ws.Dependencies = []RemoteState{}
+func (ws Workspace) getTerraformDependencies() ([]RemoteState, error) {
+	d := []RemoteState{}
 	for filename, file := range ws.Files {
 		remoteStateData, err := jmespath.Search("data[].terraform_remote_state[]", file.Unmarshalled)
 		if err != nil {
-			return err
+			return d, err
 		} else if remoteStateData == nil {
 			continue
 		}
@@ -255,22 +289,22 @@ func (ws *Workspace) getDependencies() error {
 			for k, v := range elem.(map[string]interface{}) {
 				bucket, err := jmespath.Search("[0].config[0].bucket", v)
 				if err != nil {
-					return err
+					return d, err
 				}
 
 				key, err := jmespath.Search("[0].config[0].key", v)
 				if err != nil {
-					return err
+					return d, err
 				}
 
 				profile, err := jmespath.Search("[0].config[0].profile", v)
 				if err != nil {
-					return err
+					return d, err
 				}
 
 				region, err := jmespath.Search("[0].config[0].region", v)
 				if err != nil {
-					return err
+					return d, err
 				}
 
 				if bucket == nil || region == nil || key == nil || profile == nil {
@@ -286,55 +320,167 @@ func (ws *Workspace) getDependencies() error {
 					Region:  region.(string),
 				}
 
-				ws.Dependencies = append(ws.Dependencies, rs)
+				d = append(d, rs)
 			}
 		}
 	}
-	return nil
+	return d, nil
 }
 
-func (ws *Workspace) getOutputs() error {
+func (ws Workspace) getManualDependencies(workspaces map[string]*Workspace) ([]RemoteState, error) {
+	d := []RemoteState{}
+	manuals := map[string]Manual{
+		preFileName:  ws.PreManual,
+		postFileName: ws.PostManual,
+	}
+	re := regexp.MustCompile(`\{\{.*\}\}`)
+	for filename, m := range manuals {
+		submaches := re.FindAllStringSubmatch(string(m), -1)
+		for _, sm := range submaches {
+			match := sm[0]
+			seg := strings.SplitN(strings.Trim(match, "{{}}"), ".", 2)
+			if len(seg) != 2 {
+				return d, fmt.Errorf("Reference '%s' seems to be malformed\n", match)
+			}
+
+			workspacePath := seg[0]
+
+			for name, workspace := range workspaces {
+				if strings.Contains(name, workspacePath) {
+
+					rs := RemoteState{
+						InFile:  filename,
+						Name:    workspacePath,
+						Bucket:  workspace.RemoteState.Bucket,
+						Key:     workspace.RemoteState.Key,
+						Profile: workspace.RemoteState.Profile,
+						Region:  workspace.RemoteState.Region,
+					}
+
+					d = append(d, rs)
+
+				}
+			}
+		}
+	}
+	return d, nil
+
+}
+
+func (ws Workspace) getManualInputs(workspaces map[string]*Workspace) ([]Input, error) {
+	inputs := []Input{}
+
+	manuals := map[string]Manual{
+		preFileName:  ws.PreManual,
+		postFileName: ws.PostManual,
+	}
+	re := regexp.MustCompile(`\{\{.*\}\}`)
+	for filename, m := range manuals {
+		submaches := re.FindAllSubmatch([]byte(m), -1)
+		for _, sm := range submaches {
+			match := string(sm[0])
+			seg := strings.SplitN(strings.Trim(match, "{{}}"), ".", 2)
+			if len(seg) != 2 {
+				return inputs, fmt.Errorf("Reference '%s' seems to be malformed\n", match)
+			}
+
+			workspacePath := seg[0]
+			outputName := seg[1]
+
+			var o *Output
+			for name, workspace := range workspaces {
+				if strings.Contains(name, workspacePath) {
+					for _, output := range workspace.Outputs {
+						if output.Name == outputName {
+							o = &output
+						}
+					}
+				}
+			}
+			if o == nil {
+				return inputs, fmt.Errorf("Reference to '%s' in workspace '%s' does not exist\n", outputName, workspacePath)
+			}
+
+			input := Input{
+				Name:       outputName,
+				FullName:   match,
+				InFile:     []string{filename},
+				Dependency: &o.BelongsTo.RemoteState,
+				BelongsTo:  &ws,
+			}
+
+			inputs = append(inputs, input)
+		}
+	}
+
+	return inputs, nil
+}
+
+func (ws Workspace) getOutputs() ([]Output, error) {
+	o := []Output{}
 	for filename, file := range ws.Files {
 		outputs, err := jmespath.Search("output[]", file.Unmarshalled)
 		if err != nil {
-			return err
+			return o, err
 		} else if outputs == nil {
 			continue
 		}
 
 		for _, elem := range outputs.([]interface{}) {
 			for k, v := range elem.(map[string]interface{}) {
-				o := Output{
+				output := Output{
 					Name:      k,
 					Value:     v,
 					InFile:    filename,
-					BelongsTo: ws,
+					BelongsTo: &ws,
 				}
-				ws.Outputs = append(ws.Outputs, o)
+				o = append(o, output)
 			}
 		}
 	}
 
-	return nil
+	return o, nil
 }
 
-func (ws *Workspace) getManual() error {
-	prePath := ws.Root + "/" + preFileName
-	if _, err := os.Stat(prePath); err == nil {
-		raw, err := ioutil.ReadFile(prePath)
+func (ws Workspace) getManual(filename string) (Manual, error) {
+	m := Manual("")
+	path := ws.Root + "/" + filename
+	if _, err := os.Stat(path); err == nil {
+		raw, err := ioutil.ReadFile(path)
 		if err != nil {
-			return err
+			return m, err
 		}
-		ws.PreManual = string(raw)
+		m = Manual(raw)
+	}
+	return m, nil
+}
+
+func (m Manual) render(inputs []Input) (string, error) {
+	rendered := string(m)
+
+	for _, input := range inputs {
+		if strings.HasPrefix(input.FullName, "{{") &&
+			strings.HasSuffix(input.FullName, "}}") {
+			chdir := input.ReferesTo.BelongsTo.Root
+			command := "terraform"
+			args := []string{
+				"output",
+				input.ReferesTo.Name,
+			}
+
+			cmd := exec.Command(command, args...)
+			cmd.Dir = chdir
+
+			out, err := cmd.Output()
+			if err != nil {
+				errOut := fmt.Errorf("Could not run command '%s %s' in '%s': %s", command, strings.Join(args, " "), chdir, err.Error())
+				return rendered, errOut
+			}
+			outStr := strings.TrimSpace(string(out))
+
+			rendered = strings.Replace(rendered, input.FullName, outStr, -1)
+		}
 	}
 
-	postPath := ws.Root + "/" + postFileName
-	if _, err := os.Stat(postPath); err == nil {
-		raw, err := ioutil.ReadFile(postPath)
-		if err != nil {
-			return err
-		}
-		ws.PostManual = string(raw)
-	}
-	return nil
+	return rendered, nil
 }
