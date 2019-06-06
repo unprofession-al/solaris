@@ -5,6 +5,14 @@ between related [terraform](https://www.terraform.io) configurations.
 
 ## Install
 
+### Binary Download
+
+Navigate to [Releases][https://github.com/unprofession-al/solaris/releases], grab
+the package that matches your operating system and achitecture. Unpack the archive
+and put the binary file somewhere in your `$PATH`
+
+### From Source
+
 Make sure you have [go](https://golang.org/doc/install) installed, then run: 
 
 ```
@@ -14,7 +22,6 @@ Make sure you have [go](https://golang.org/doc/install) installed, then run:
 ## Run
 
 ```
-# solaris -h
 handle dependencies between multiple terraform workspaces
 
 Usage:
@@ -29,6 +36,7 @@ Available Commands:
 
 Flags:
   -b, --base string      the base directory (default ".")
+      --debug            write debug output to STDERR
   -h, --help             help for solaris
   -i, --ignore strings   ignore subdirectories that match the given patterns
 
