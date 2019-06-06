@@ -32,6 +32,12 @@ executed before or after a terraform configuration has been applied. This
 documentation can again refere to terraform outputs in order to project dependencies
 between a terraform configuration and manual tasks.
 
+Based on this information you can...
+
+* ... draw a graph to visualize your dependencies
+* ... 'lint' your dependencies in order do avoid confusion
+* ... generate a step-by-step documentation that allows you to bootstrap your environment
+
 ## Run
 
 Execute just `solaris` to get a general help. Append `--help` for more infromation
