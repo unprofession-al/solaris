@@ -7,7 +7,7 @@ between related [terraform](https://www.terraform.io) configurations.
 
 ### Binary Download
 
-Navigate to [Releases][https://github.com/unprofession-al/solaris/releases], grab
+Navigate to [Releases](https://github.com/unprofession-al/solaris/releases), grab
 the package that matches your operating system and achitecture. Unpack the archive
 and put the binary file somewhere in your `$PATH`
 
