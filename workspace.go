@@ -384,7 +384,7 @@ func (ws Workspace) getManualInputs(workspaces map[string]*Workspace) ([]Input, 
 				return inputs, fmt.Errorf("Reference '%s' seems to be malformed\n", match)
 			}
 
-			workspacePath := seg[0]
+			workspacePath := filepath.FromSlash(seg[0])
 			outputName := seg[1]
 
 			var o *Output
