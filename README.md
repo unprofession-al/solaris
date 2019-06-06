@@ -15,11 +15,28 @@ and put the binary file somewhere in your `$PATH`
 
 Make sure you have [go](https://golang.org/doc/install) installed, then run: 
 
+
 ```
 # go get -u https://github.com/unprofession-al/solaris
 ```
 
+## How it works
+
+`solaris` analyzes the current directory and its subdirectories. Based on the 
+[terraform outputs](https://www.terraform.io/docs/configuration/outputs.html) and
+[remote states](https://www.terraform.io/docs/state/remote.html) `solaris` is 
+able to discover dependencies between those configurations.
+
+In addition to that `solaris` allows you do document manual work required to be
+executed before or after a terraform configuration has been applied. This 
+documentation can again refere to terraform outputs in order to project dependencies
+between a terraform configuration and manual tasks.
+
 ## Run
+
+Execute just `solaris` to get a general help. Append `--help` for more infromation
+of each sub command.
+
 
 ```
 handle dependencies between multiple terraform workspaces
