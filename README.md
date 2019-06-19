@@ -1,6 +1,6 @@
 # solaris
 
-![solaris](./solaris.svg "solaris")
+![solaris](./solaris.png "solaris")
 
 `solaris` is a small command line tool which allows to keep track of dependencies
 between related [terraform](https://www.terraform.io) configurations.
