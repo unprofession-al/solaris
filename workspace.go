@@ -10,8 +10,6 @@ import (
 	"strings"
 
 	"github.com/emicklei/dot"
-	"github.com/hashicorp/hcl"
-	jmespath "github.com/jmespath/go-jmespath"
 )
 
 const (
@@ -143,8 +141,7 @@ type Workspace struct {
 type Manual string
 
 type File struct {
-	Raw          []byte
-	Unmarshalled interface{}
+	Raw []byte
 }
 
 type Input struct {
@@ -173,18 +170,18 @@ func (ws *Workspace) readFiles(basepath string) error {
 			return err
 		}
 		file.Raw = raw
-
-		err = hcl.Unmarshal(file.Raw, &file.Unmarshalled)
-		if err != nil {
-			return err
-		}
 	}
 	return nil
 }
 
 func (ws Workspace) getTerraformInputs() ([]Input, error) {
 	inputs := []Input{}
-	r := regexp.MustCompile(`\${data\.terraform_remote_state\.(?P<rs>[a-zA-Z0-9_-]*)\.(?P<var>[a-zA-Z0-9_-]*)}`)
+	refs := []*regexp.Regexp{
+		// pre v0.12.x syntax
+		regexp.MustCompile(`\${data\.terraform_remote_state\.(?P<rs>[a-zA-Z0-9_-]*)\.(?P<var>[a-zA-Z0-9_-]*)}`),
+		// post v0.12.x syntax
+		regexp.MustCompile(`data\.terraform_remote_state\.(?P<rs>[a-zA-Z0-9_-]*)\.outputs\.(?P<var>[a-zA-Z0-9_-]*)`),
+	}
 
 	appendIfMissing := func(slice []string, i string) []string {
 		for _, ele := range slice {
@@ -196,42 +193,44 @@ func (ws Workspace) getTerraformInputs() ([]Input, error) {
 	}
 
 	for filename, file := range ws.Files {
-		matches := r.FindAllSubmatch(file.Raw, -1)
-		for _, match := range matches {
-			if len(match) != 3 {
-				continue
-			}
-
-			fullName := string(match[0])
-			rsName := string(match[1])
-			varName := string(match[2])
-
-			var depRef *RemoteState
-
-			for i, dep := range ws.Dependencies {
-				if dep.Name == rsName {
-					depRef = &ws.Dependencies[i]
-				}
-			}
-
-			inputExists := false
-			for i, input := range inputs {
-				if depRef != nil && varName == input.Name && depRef.equals(*input.Dependency) {
-					inputExists = true
-					inputs[i].InFile = appendIfMissing(inputs[i].InFile, filename)
-				}
-			}
-
-			if !inputExists {
-				input := Input{
-					Name:       varName,
-					FullName:   fullName,
-					InFile:     []string{filename},
-					Dependency: depRef,
-					BelongsTo:  &ws,
+		for _, r := range refs {
+			matches := r.FindAllSubmatch(file.Raw, -1)
+			for _, match := range matches {
+				if len(match) != 3 {
+					continue
 				}
 
-				inputs = append(inputs, input)
+				fullName := string(match[0])
+				rsName := string(match[1])
+				varName := string(match[2])
+
+				var depRef *RemoteState
+
+				for i, dep := range ws.Dependencies {
+					if dep.Name == rsName {
+						depRef = &ws.Dependencies[i]
+					}
+				}
+
+				inputExists := false
+				for i, input := range inputs {
+					if depRef != nil && varName == input.Name && depRef.equals(*input.Dependency) {
+						inputExists = true
+						inputs[i].InFile = appendIfMissing(inputs[i].InFile, filename)
+					}
+				}
+
+				if !inputExists {
+					input := Input{
+						Name:       varName,
+						FullName:   fullName,
+						InFile:     []string{filename},
+						Dependency: depRef,
+						BelongsTo:  &ws,
+					}
+
+					inputs = append(inputs, input)
+				}
 			}
 		}
 	}
@@ -240,34 +239,52 @@ func (ws Workspace) getTerraformInputs() ([]Input, error) {
 
 func (ws Workspace) getRemoteState() (RemoteState, error) {
 	rs := RemoteState{}
+
+	refs := map[string]*regexp.Regexp{
+		"terraform": regexp.MustCompile(`terraform\s*\{[^\{\}]*\{[^\{\}]*\}[^\{\}]*\}`),
+		"bucket":    regexp.MustCompile(`bucket\s*=\s*\"(?P<val>[a-zA-Z0-9_\-]*)\"`),
+		"key":       regexp.MustCompile(`key\s*=\s*\"(?P<val>[^\"]*)\"`),
+		"profile":   regexp.MustCompile(`profile\s*=\s*\"(?P<val>[a-zA-Z0-9_\-]*)\"`),
+		"region":    regexp.MustCompile(`region\s*=\s*\"(?P<val>[a-zA-Z0-9_\-]*)\"`),
+	}
+
 	for filename, file := range ws.Files {
-		bucket, err := jmespath.Search("terraform[0].backend[0].s3[0].bucket", file.Unmarshalled)
-		if err != nil {
-			return rs, err
+		terraformMatches := refs["terraform"].FindAll(file.Raw, -1)
+		if len(terraformMatches) > 1 {
+			return rs, fmt.Errorf("Too many remote state definitions found in %s", filename)
+		} else if len(terraformMatches) < 1 {
+			continue
 		}
 
-		key, err := jmespath.Search("terraform[0].backend[0].s3[0].key", file.Unmarshalled)
-		if err != nil {
-			return rs, err
+		var bucket, key, profile, region string
+
+		bucketMatches := refs["bucket"].FindAllSubmatch(terraformMatches[0], -1)
+		if len(bucketMatches) > 0 && len(bucketMatches[0]) > 1 {
+			bucket = string(bucketMatches[0][1])
 		}
 
-		profile, err := jmespath.Search("terraform[0].backend[0].s3[0].profile", file.Unmarshalled)
-		if err != nil {
-			return rs, err
+		keyMatches := refs["key"].FindAllSubmatch(terraformMatches[0], -1)
+		if len(keyMatches) > 0 && len(keyMatches[0]) > 1 {
+			key = string(keyMatches[0][1])
 		}
 
-		region, err := jmespath.Search("terraform[0].backend[0].s3[0].region", file.Unmarshalled)
-		if err != nil {
-			return rs, err
+		profileMatches := refs["profile"].FindAllSubmatch(terraformMatches[0], -1)
+		if len(profileMatches) > 0 && len(profileMatches[0]) > 1 {
+			profile = string(profileMatches[0][1])
 		}
 
-		if bucket != nil && region != nil && key != nil && profile != nil {
+		regionMatches := refs["region"].FindAllSubmatch(terraformMatches[0], -1)
+		if len(regionMatches) > 0 && len(regionMatches[0]) > 1 {
+			region = string(regionMatches[0][1])
+		}
+
+		if bucket != "" && region != "" && key != "" && profile != "" {
 			rs = RemoteState{
 				InFile:  filename,
-				Bucket:  bucket.(string),
-				Key:     key.(string),
-				Profile: profile.(string),
-				Region:  region.(string),
+				Bucket:  bucket,
+				Key:     key,
+				Profile: profile,
+				Region:  region,
 			}
 		}
 	}
@@ -277,53 +294,64 @@ func (ws Workspace) getRemoteState() (RemoteState, error) {
 
 func (ws Workspace) getTerraformDependencies() ([]RemoteState, error) {
 	d := []RemoteState{}
+
+	refs := map[string]*regexp.Regexp{
+		"rs":      regexp.MustCompile(`data\s*\"terraform_remote_state\"\s*\"(?P<val>[a-zA-Z0-9_-]*)\"\s*\{[^\{\}]*\{[^\{\}]*\}[^\{\}]*\}`),
+		"bucket":  regexp.MustCompile(`bucket\s*=\s*\"(?P<val>[a-zA-Z0-9_\-\./]*)\"`),
+		"key":     regexp.MustCompile(`key\s*=\s*\"(?P<val>[^\"]*)\"`),
+		"profile": regexp.MustCompile(`profile\s*=\s*\"(?P<val>[a-zA-Z0-9_\-]*)\"`),
+		"region":  regexp.MustCompile(`region\s*=\s*\"(?P<val>[a-zA-Z0-9_\-]*)\"`),
+	}
+
 	for filename, file := range ws.Files {
-		remoteStateData, err := jmespath.Search("data[].terraform_remote_state[]", file.Unmarshalled)
-		if err != nil {
-			return d, err
-		} else if remoteStateData == nil {
+		rsMatches := refs["rs"].FindAllSubmatch(file.Raw, -1)
+		if len(rsMatches) < 1 {
 			continue
 		}
 
-		for _, elem := range remoteStateData.([]interface{}) {
-			for k, v := range elem.(map[string]interface{}) {
-				bucket, err := jmespath.Search("[0].config[0].bucket", v)
-				if err != nil {
-					return d, err
-				}
-
-				key, err := jmespath.Search("[0].config[0].key", v)
-				if err != nil {
-					return d, err
-				}
-
-				profile, err := jmespath.Search("[0].config[0].profile", v)
-				if err != nil {
-					return d, err
-				}
-
-				region, err := jmespath.Search("[0].config[0].region", v)
-				if err != nil {
-					return d, err
-				}
-
-				if bucket == nil || region == nil || key == nil || profile == nil {
-					continue
-				}
-
-				rs := RemoteState{
-					InFile:  filename,
-					Name:    k,
-					Bucket:  bucket.(string),
-					Key:     key.(string),
-					Profile: profile.(string),
-					Region:  region.(string),
-				}
-
-				d = append(d, rs)
+		for _, definition := range rsMatches {
+			if len(definition) < 2 {
+				continue
 			}
+			name := string(definition[1])
+			var bucket, key, profile, region string
+
+			bucketMatches := refs["bucket"].FindAllSubmatch(definition[0], -1)
+			if len(bucketMatches) > 0 && len(bucketMatches[0]) > 1 {
+				bucket = string(bucketMatches[0][1])
+			}
+
+			keyMatches := refs["key"].FindAllSubmatch(definition[0], -1)
+			if len(keyMatches) > 0 && len(keyMatches[0]) > 1 {
+				key = string(keyMatches[0][1])
+			}
+
+			profileMatches := refs["profile"].FindAllSubmatch(definition[0], -1)
+			if len(profileMatches) > 0 && len(profileMatches[0]) > 1 {
+				profile = string(profileMatches[0][1])
+			}
+
+			regionMatches := refs["region"].FindAllSubmatch(definition[0], -1)
+			if len(regionMatches) > 0 && len(regionMatches[0]) > 1 {
+				region = string(regionMatches[0][1])
+			}
+
+			if bucket == "" || region == "" || key == "" || profile == "" {
+				continue
+			}
+			rs := RemoteState{
+				InFile:  filename,
+				Name:    name,
+				Bucket:  bucket,
+				Key:     key,
+				Profile: profile,
+				Region:  region,
+			}
+			d = append(d, rs)
 		}
+
 	}
+
 	return d, nil
 }
 
@@ -418,24 +446,25 @@ func (ws Workspace) getManualInputs(workspaces map[string]*Workspace) ([]Input, 
 
 func (ws Workspace) getOutputs() ([]Output, error) {
 	o := []Output{}
+	refs := map[string]*regexp.Regexp{
+		"output": regexp.MustCompile(`output\s*\"(?P<val>[a-zA-Z0-9_-]*)\"\s*\{`),
+	}
 	for filename, file := range ws.Files {
-		outputs, err := jmespath.Search("output[]", file.Unmarshalled)
-		if err != nil {
-			return o, err
-		} else if outputs == nil {
+		outputMatches := refs["output"].FindAllSubmatch(file.Raw, -1)
+		if len(outputMatches) < 1 {
 			continue
 		}
 
-		for _, elem := range outputs.([]interface{}) {
-			for k, v := range elem.(map[string]interface{}) {
-				output := Output{
-					Name:      k,
-					Value:     v,
-					InFile:    filename,
-					BelongsTo: &ws,
-				}
-				o = append(o, output)
+		for _, m := range outputMatches {
+			if len(m) < 2 {
+				continue
 			}
+			output := Output{
+				Name:      string(m[1]),
+				InFile:    filename,
+				BelongsTo: &ws,
+			}
+			o = append(o, output)
 		}
 	}
 
