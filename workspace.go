@@ -21,6 +21,8 @@ const (
 func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) {
 	workspaces := map[string]*Workspace{}
 
+	ignore = append(ignore, ".terraform")
+
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		for _, i := range ignore {
 			if strings.Contains(path, i) {
