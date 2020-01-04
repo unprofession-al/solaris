@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func BuildExecutionPlan(workspaces []*Workspace, roots []string) ([][]*Workspace, error) {
+func BuildExecutionPlan(workspaces []*Workspace, roots []string, debug func(string)) ([][]*Workspace, error) {
 	plan := [][]*Workspace{}
 	if len(roots) == 0 {
 		// root are all workspaces which do not depend on anything
