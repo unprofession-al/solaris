@@ -35,7 +35,7 @@ func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) 
 			if w, found := workspaces[workspacePath]; found {
 				w.Files[filename] = &File{}
 			} else {
-				files := map[string]*File{filename: &File{}}
+				files := map[string]*File{filename: {}}
 				workspaces[workspacePath] = &Workspace{
 					Files: files,
 					Root:  workspacePath,

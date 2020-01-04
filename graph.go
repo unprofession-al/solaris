@@ -51,7 +51,7 @@ func RenderWorkspaces(workspaces map[string]*Workspace) *dot.Graph {
 	nodes := map[string]dot.Node{}
 
 	// draw workspaces
-	for name, _ := range workspaces {
+	for name := range workspaces {
 		nodes[name] = g.Node(name)
 	}
 
