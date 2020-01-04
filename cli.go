@@ -96,7 +96,7 @@ func NewApp() *App {
 
 func (a App) debug(out string) {
 	if a.cfg.rootDebug {
-		fmt.Fprintf(os.Stderr, out)
+		fmt.Fprint(os.Stderr, out)
 	}
 }
 

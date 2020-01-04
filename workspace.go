@@ -253,7 +253,7 @@ func (ws Workspace) getRemoteState() (RemoteState, error) {
 	for filename, file := range ws.Files {
 		terraformMatches := refs["terraform"].FindAll(file.Raw, -1)
 		if len(terraformMatches) > 1 {
-			return rs, fmt.Errorf("Too many remote state definitions found in %s", filename)
+			return rs, fmt.Errorf("too many remote state definitions found in %s", filename)
 		} else if len(terraformMatches) < 1 {
 			continue
 		}
@@ -368,9 +368,9 @@ func (ws Workspace) getManualDependencies(workspaces map[string]*Workspace) ([]R
 		submaches := re.FindAllStringSubmatch(string(m), -1)
 		for _, sm := range submaches {
 			match := sm[0]
-			seg := strings.SplitN(strings.Trim(match, "{{}}"), ".", 2)
+			seg := strings.SplitN(strings.Trim(match, "{}"), ".", 2)
 			if len(seg) != 2 {
-				return d, fmt.Errorf("Reference '%s' seems to be malformed\n", match)
+				return d, fmt.Errorf("reference '%s' seems to be malformed", match)
 			}
 
 			workspacePath := seg[0]
@@ -409,9 +409,9 @@ func (ws Workspace) getManualInputs(workspaces map[string]*Workspace) ([]Input, 
 		submaches := re.FindAllSubmatch([]byte(m), -1)
 		for _, sm := range submaches {
 			match := string(sm[0])
-			seg := strings.SplitN(strings.Trim(match, "{{}}"), ".", 2)
+			seg := strings.SplitN(strings.Trim(match, "{}"), ".", 2)
 			if len(seg) != 2 {
-				return inputs, fmt.Errorf("Reference '%s' seems to be malformed\n", match)
+				return inputs, fmt.Errorf("reference '%s' seems to be malformed", match)
 			}
 
 			workspacePath := filepath.FromSlash(seg[0])
@@ -428,7 +428,7 @@ func (ws Workspace) getManualInputs(workspaces map[string]*Workspace) ([]Input, 
 				}
 			}
 			if o == nil {
-				return inputs, fmt.Errorf("Reference to '%s' in workspace '%s' does not exist\n", outputName, workspacePath)
+				return inputs, fmt.Errorf("reference to '%s' in workspace '%s' does not exist", outputName, workspacePath)
 			}
 
 			input := Input{
@@ -504,7 +504,7 @@ func (m Manual) render(inputs []Input) (string, error) {
 
 			out, err := cmd.Output()
 			if err != nil {
-				errOut := fmt.Errorf("Could not run command '%s %s' in '%s': %s", command, strings.Join(args, " "), chdir, err.Error())
+				errOut := fmt.Errorf("could not run command '%s %s' in '%s': %s", command, strings.Join(args, " "), chdir, err.Error())
 				return rendered, errOut
 			}
 			outStr := strings.TrimSpace(string(out))

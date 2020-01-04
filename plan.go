@@ -80,9 +80,7 @@ func BuildExecutionPlan(workspaces []*Workspace, roots []string, debug func(stri
 		// get a list of all workspaces that already have been planned
 		planned := []*Workspace{}
 		for _, i := range plan {
-			for _, j := range i {
-				planned = append(planned, j)
-			}
+			planned = append(planned, i...)
 		}
 
 		// get a list of uniq unplanned workspaces
