@@ -94,13 +94,13 @@ func NewApp() *App {
 	return a
 }
 
-func (a App) debug(out string) {
+func (a *App) debug(out string) {
 	if a.cfg.rootDebug {
 		fmt.Fprint(os.Stderr, out)
 	}
 }
 
-func (a App) graphCmd(cmd *cobra.Command, args []string) {
+func (a *App) graphCmd(cmd *cobra.Command, args []string) {
 	workspaces, err := GetWorkspaces(a.cfg.rootBase, a.cfg.rootIgnorePatterns)
 	if err != nil {
 		log.Fatal(err)
@@ -115,7 +115,7 @@ func (a App) graphCmd(cmd *cobra.Command, args []string) {
 	fmt.Printf("\n/*\n   Use 'solaris ... | fdp -Tsvg > out.svg' or\n   similar to generate a vector visualization\n*/\n")
 }
 
-func (a App) lintCmd(cmd *cobra.Command, args []string) {
+func (a *App) lintCmd(cmd *cobra.Command, args []string) {
 	workspaces, err := GetWorkspaces(a.cfg.rootBase, a.cfg.rootIgnorePatterns)
 	if err != nil {
 		log.Fatal(err)
@@ -130,7 +130,7 @@ func (a App) lintCmd(cmd *cobra.Command, args []string) {
 	}
 }
 
-func (a App) jsonCmd(cmd *cobra.Command, args []string) {
+func (a *App) jsonCmd(cmd *cobra.Command, args []string) {
 	workspaces, err := GetWorkspaces(a.cfg.rootBase, a.cfg.rootIgnorePatterns)
 	if err != nil {
 		log.Fatal(err)
@@ -149,7 +149,7 @@ func (a App) jsonCmd(cmd *cobra.Command, args []string) {
 	fmt.Println(string(out))
 }
 
-func (a App) planCmd(cmd *cobra.Command, args []string) {
+func (a *App) planCmd(cmd *cobra.Command, args []string) {
 	workspaces, err := GetWorkspaces(a.cfg.rootBase, a.cfg.rootIgnorePatterns)
 	if err != nil {
 		log.Fatal(err)
@@ -209,6 +209,6 @@ func (a App) planCmd(cmd *cobra.Command, args []string) {
 
 }
 
-func (a App) versionCmd(cmd *cobra.Command, args []string) {
+func (a *App) versionCmd(cmd *cobra.Command, args []string) {
 	fmt.Println(versionInfo())
 }
