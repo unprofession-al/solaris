@@ -21,11 +21,19 @@ const (
 func GetWorkspaces(root string, ignore []string) (map[string]*Workspace, error) {
 	workspaces := map[string]*Workspace{}
 
-	ignore = append(ignore, ".terraform")
+	matchers := []*regexp.Regexp{}
+	for _, i := range ignore {
+		m, err := regexp.Compile(i)
+		matchers = append(matchers, m)
+		if err != nil {
+			err = fmt.Errorf("error while compiling pattern '%s', error is: %s", i, err.Error())
+			return workspaces, err
+		}
+	}
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		for _, i := range ignore {
-			if strings.Contains(path, i) {
+		for _, m := range matchers {
+			if m.MatchString(path) {
 				return nil
 			}
 		}

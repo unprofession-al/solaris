@@ -43,7 +43,7 @@ func NewApp() *App {
 	}
 	rootCmd.PersistentFlags().BoolVar(&a.cfg.rootDebug, "debug", false, "write debug output to STDERR")
 	rootCmd.PersistentFlags().StringVarP(&a.cfg.rootBase, "base", "b", ".", "the base directory")
-	rootCmd.PersistentFlags().StringSliceVarP(&a.cfg.rootIgnorePatterns, "ignore", "i", []string{}, "ignore subdirectories that match the given patterns")
+	rootCmd.PersistentFlags().StringSliceVarP(&a.cfg.rootIgnorePatterns, "ignore", "i", []string{`\.terraform`, "modules"}, "ignore subdirectories that match the given patterns")
 	a.Execute = rootCmd.Execute
 
 	// graph
