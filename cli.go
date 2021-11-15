@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 
@@ -27,6 +28,7 @@ type App struct {
 		planRoots        []string
 		planJSON         bool
 		planRenderManual bool
+		planTemplate     string
 	}
 
 	// entry point
@@ -52,7 +54,7 @@ func NewApp() *App {
 		Short: "generate dot output of terraform workspace dependencies",
 		Run:   a.graphCmd,
 	}
-	graphCmd.PersistentFlags().BoolVarP(&a.cfg.graphDetailed, "detailed", "d", false, "draw a detailed graph")
+	graphCmd.PersistentFlags().BoolVar(&a.cfg.graphDetailed, "d", false, "draw a detailed graph")
 	rootCmd.AddCommand(graphCmd)
 
 	// lint
@@ -69,7 +71,7 @@ func NewApp() *App {
 		Short: "print a json representation of terraform workspace dependencies",
 		Run:   a.jsonCmd,
 	}
-	jsonCmd.PersistentFlags().BoolVarP(&a.cfg.jsonCompact, "compact", "c", false, "print compact JSON")
+	jsonCmd.PersistentFlags().BoolVar(&a.cfg.jsonCompact, "c", false, "print compact JSON")
 	rootCmd.AddCommand(jsonCmd)
 
 	// plan
@@ -78,9 +80,10 @@ func NewApp() *App {
 		Short: "print execution order of terraform workspaces",
 		Run:   a.planCmd,
 	}
-	planCmd.PersistentFlags().StringSliceVarP(&a.cfg.planRoots, "roots", "r", []string{}, "plan only to execute these workspaces and workspaces depending on them")
-	planCmd.PersistentFlags().BoolVarP(&a.cfg.planJSON, "json", "j", false, "print as JSON")
-	planCmd.PersistentFlags().BoolVarP(&a.cfg.planRenderManual, "render", "m", false, "Render Pre-/Post manuals (this requires `terraform` to be installed)")
+	planCmd.PersistentFlags().StringSliceVar(&a.cfg.planRoots, "r", []string{}, "plan only to execute these workspaces and workspaces depending on them")
+	planCmd.PersistentFlags().BoolVar(&a.cfg.planJSON, "j", false, "print as JSON")
+	planCmd.PersistentFlags().BoolVar(&a.cfg.planRenderManual, "m", false, "Render Pre-/Post manuals (this requires `terraform` to be installed)")
+	planCmd.PersistentFlags().StringVar(&a.cfg.planTemplate, "t", "", "Path to template")
 	rootCmd.AddCommand(planCmd)
 
 	// version
@@ -203,7 +206,15 @@ func (a *App) planCmd(cmd *cobra.Command, args []string) {
 		}
 		fmt.Println(string(out))
 	} else {
-		out := RenderExecutionPlanAsHTML(plan)
+		if a.cfg.planTemplate == "" {
+			log.Fatal("template was not specified")
+		}
+		content, err := ioutil.ReadFile(a.cfg.planTemplate)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		out := RenderExecutionPlan(plan, string(content))
 		fmt.Println(out)
 	}
 
