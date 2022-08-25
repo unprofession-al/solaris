@@ -53,11 +53,13 @@ Usage:
   solaris [command]
 
 Available Commands:
+  completion  generate the autocompletion script for the specified shell
   graph       generate dot output of terraform workspace dependencies
   help        Help about any command
   json        print a json representation of terraform workspace dependencies
   lint        lint terraform workspace dependencies
   plan        print execution order of terraform workspaces
+  version     Print version info
 
 Flags:
   -b, --base string      the base directory (default ".")
